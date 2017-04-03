@@ -168,6 +168,59 @@ public class PaiaCoreEndpoint extends HttpServlet {
             }
         }
 
+        // if not exists token: read request parameter
+        if ((authorization == null || authorization.equals("")) && httpServletRequest.getParameter("access_token") != null && !httpServletRequest.getParameter("access_token").equals("")) {
+            authorization = httpServletRequest.getParameter("access_token");
+        }
+
+        // if not exists token
+        if (authorization == null || authorization.equals("")) {
+
+            // if exists PaiaService-Cookie: read content
+            Cookie[] cookies = httpServletRequest.getCookies();
+
+            if (cookies != null) {
+                for (Cookie cookie : cookies) {
+                    if (cookie.getName().equals("PaiaService")) {
+
+                        String value = URLDecoder.decode(cookie.getValue(), "UTF-8");
+                        this.logger.info(value);
+                        LoginResponse loginResponse = mapper.readValue(value, LoginResponse.class);
+
+                        // A C H T U N G: ggf. andere patronID im Cookie als in Request (UniAccount vs. BibAccount)
+                        if (loginResponse.getPatron().equals(patronid)) {
+                            authorization = loginResponse.getAccess_token();
+                        }
+
+                        break;
+                    }
+                }
+
+                // if not exists token - search for Shibboleth-Token
+                if (authorization == null || authorization.equals("")) {
+
+                    if (Lookup.lookupAll(AuthorizationInterface.class).size() > 0) {
+
+                        AuthorizationInterface authorizationInterface = Lookup.lookup(AuthorizationInterface.class);
+                        // init Authorization Service
+                        authorizationInterface.init(this.config);
+
+                        try {
+
+                            authorization = authorizationInterface.getAuthCookies(cookies);
+                        }
+                        catch (AuthorizationException e) {
+
+                            // TODO correct error handling
+                            this.logger.error(HttpServletResponse.SC_UNAUTHORIZED + "!");
+                        }
+
+                        this.logger.debug("Authorization: " + authorization);
+                    }
+                }
+            }
+        }
+
         Boolean isAuthorized = false;
 
         if (authorization != null && !authorization.equals("")) {
@@ -366,13 +419,6 @@ public class PaiaCoreEndpoint extends HttpServlet {
                     listName = params[3];
                 }
             }
-            /* alt:
-            else if (params[1].equals("favorites") && params.length > 2) {
-                patronid = params[0];
-                service = params[1];
-                listName = params[2];
-            }
-            */
         }
 
         if (patronid.equals("patronid")) {
