@@ -2188,57 +2188,45 @@ public class PaiaCoreEndpoint extends HttpServlet {
                     }
 
                     case "backup/favorites" : {
-                        // Jedis-Objekt zur Kommunikation mit Redis
+                        httpServletResponse.setStatus(HttpServletResponse.SC_OK);
+                        httpServletResponse.setContentType("application/csv;charset=UTF-8");
+
                         Jedis jedis = new Jedis(this.config.getProperty("redis-favorites-server"), Integer.parseInt(this.config.getProperty("redis-favorites-server-port")));
 
-                        // Einlesen der Konkordanz, die einer Application einen Redis-DB-Index zuordnet
-                        Map<String, Object> concordance = mapper.readValue(new File("conf/concordance.json"), Map.class);
+                        // get Redis keyspace section info for a loop over databases in Redis
+                        String keyspace = jedis.info("keyspace");
+                        String[] keyspaceSplitted = keyspace.split("\r\n");
+                        for (int i = 0; i < (keyspaceSplitted.length - 1); i++) {
+                            jedis.select(i);
 
-                        if (concordance.containsKey(application)) {
-                            int appIndex = Integer.parseInt(String.valueOf(concordance.get(application)));
-
-                            jedis.select(appIndex);
-
-                            httpServletResponse.setStatus(HttpServletResponse.SC_OK);
-                            httpServletResponse.setContentType("application/csv;charset=UTF-8");
-
-                            // Variablen zur Aufnahme des Ergebnisses einer SCAN-Anfrage an Redis
+                            // variables for a Redis SCAN query
                             String cursor = "0";
                             List<String> resultList;
 
-                            // Schleife, bis cursor wieder bei "0" ist, um alle keys abzufragen
                             do {
-                                // SCAN-Anfrage
                                 ScanResult<String> scanResult = jedis.scan(cursor);
                                 resultList = scanResult.getResult();
 
-                                // Schleife über alle keys
-                                for (int i = 0; i < resultList.size(); i++) {
-                                    String key = resultList.get(i);
+                                // loop over all keys of a database
+                                for (int j = 0; j < resultList.size(); j++) {
+                                    String key = resultList.get(j);
 
-                                    // Überprüfung, ob unter dem key ein hash gespeichert ist
                                     if (jedis.type(key).equals("hash")) {
                                         Set<String> fields = jedis.hkeys(key);
 
-                                        // Schleife über alle fields eines key
+                                        // loop over all fields of a key
                                         for (String field : fields) {
                                             String value = jedis.hget(key, field);
-                                            httpServletResponse.getWriter().println(key + ";" + field + ";" + value);
+                                            httpServletResponse.getWriter().println(i + ";" + key + ";" + field + ";" + value);
                                         }
                                     }
                                 }
-
-                                // Neu Setzen des Cursors
                                 cursor = scanResult.getStringCursor();
-                            } while (!cursor.equals("0"));
+                            } while(!cursor.equals("0"));
                         }
-
                         jedis.close();
                         break;
                     }
-
-                    // hier ggf. weitere cases für andere Backup-Szenarien
-
                 }
 
             }
